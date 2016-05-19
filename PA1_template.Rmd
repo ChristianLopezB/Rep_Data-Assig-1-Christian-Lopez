@@ -1,0 +1,198 @@
+---
+title: "RepData Project 1"
+author: "Christian Lopez"
+date: "May 18, 2016"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(lattice)
+library(dplyr)
+```
+
+
+##Loading and preprocessing the data
+
+First read the the Activity monitoring data set from the activity.csv file as a data frame. We make sure the Date as in the correct format. We added 2 more columns that represent the Day of the week and if that day is a weekday or a weekend.
+
+```{r}
+
+data<-read.csv("activity.csv" )      #Reading the data file
+data[,2]<-as.Date(data[,2])          # Change the to Dates
+data$Day<-as.factor(weekdays(data[,2]))  # Add the day of the Week 
+data$Day<-factor(data$Day,              #Change the order of the factor
+                 levels=c("Sunday" , "Monday","Tuesday",   
+                        "Wednesday","Thursday", "Friday", "Saturday"))
+weekend<-subset(data, (Day== "Saturday"| Day=="SUnday"))   #Filter by Weekend 
+weekday<-subset(data, (Day!= "Saturday" & Day!="SUnday"))  #Filter by Weekdays 
+weekend[,5]<-as.factor(rep( "Weekend", time=length(weekend[,4])))
+weekday[,5]<-as.factor(rep( "Weekday", time=length(weekday[,4])))
+data<-rbind(weekday, weekend)                             #Add the Filter 
+names(data)<-c("Steps","Date","Interval","Day","Weekday/Weekend")
+summary(data)                                           #Shows sumary of data
+```
+
+##Mean and Median of total number of steps taken per day
+
+For this part of the assignment, we will ignore the missing values in the data set.
+
+1) To get a better insight of the data, we fist look at the distribution of it. We will generate a Histogram with the total number of steps taken per day
+```{r}
+StepsT<-as.matrix(summarise
+                  (group_by(data,Date),    #Subset the data by Date
+                  sum(Steps)))             #Calcualte Total number of steps
+Total_Steps<-na.omit(as.numeric(StepsT[,2])) #Eliminate NA values
+
+hist(Total_Steps,col= "green",               #plot Histogram
+     xlab= "Total Number of Steps per Day", 
+     main= "Histogram of total number of Steps per day")
+rug(Total_Steps)
+```
+
+From this Histogram, we can see that it was more probable for the individual to take a total of 10,000 steps in a day. As plot suggest, most of the data points of the total number of steps per day fall withing the range of 10,000-15,000 steps.  
+
+
+2) Now we calculate the mean and median total number of steps taken per day
+
+```{r}
+StepsMeanMedian<-na.omit(as.data.frame(summarise                 
+                                      (group_by(data,Date), #Subset the data by Date
+                                      mean(Steps),          #Calcualte mean
+                                      median(Steps))))     #Calculate Median
+colnames(StepsMeanMedian)<-c("Days", "Mean", "Median")      #Name the colums
+StepsMeanMedian
+summary(StepsMeanMedian)
+```
+
+As it can be seem, in some days the were no data collected, therefore, the mean and median is not calculated.Additionally, the median of the total number of steps for all the days data was collected is "0", which suggest that most of the data point collected of the total number of steps in the 5 min interval were "0". This can be seems more easily if we plot a Histogram of the Total number of steps taken per 5 minute intervals
+
+```{r}
+with(data, hist(Steps, col="green", main="Histogram of steps per 5min interval"))
+
+```
+
+
+We can also see the mean and median of the total number of steps per day of the week.
+```{r}
+level<-levels(data$Day)         
+Summary_Table <-matrix(0, 7,2)            #Create Table
+ rownames( Summary_Table)<-level          #Name Row
+ colnames( Summary_Table)<-c("Mean", "Median") #Name Col
+for(i in 1:7){       #Calculate Mean and Median of Steps pet each Day
+   Summary_Table[i,1]<-with(subset(data, Day== level[i]), mean(Steps, na.rm = TRUE))
+   Summary_Table[i,2]<-with(subset(data, Day== level[i]),median(Steps, na.rm = TRUE))}
+Summary_Table
+```
+
+
+##Average daily activity pattern
+
+1)Now we make a time series plot  of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all days (y-axis)
+
+```{r}
+
+StepsAverage<-as.data.frame(summarise
+                            (group_by(data,Interval),      #Subset by Intervals
+                            mean(Steps, na.rm = TRUE))) #Calcualte the Mean without NA
+colnames(StepsAverage)<-c("Interval", "Average") 
+xyplot(Average~Interval, StepsAverage, type="l", lwd=4,    #Make PLot
+       ylab= "Average number of steps",
+       main= " Time Sereies plot of the average number of steps per 5min interval")
+
+Max5<-subset(StepsAverage,     #Calculate the Interval with the Max average num. steps
+             StepsAverage[,2]==max(StepsAverage[,2])) 
+Max<-Max5[1,1]
+```
+
+2) The  5-minute interval, that on average across all the days in the data set, contains the maximum number of steps is the interval with ID: `r Max`
+
+#Imputing missing values
+
+Note that there are a number of days/intervals where there are missing values (coded as NA). The presence of missing days may introduce bias into some calculations or summaries of the data.
+```{r}
+NaRows<- sum(apply(data, 1,                   #Apply funciton per row
+                   function(x)sum(is.na(x)))) # Numbe of NA in a Row
+
+```
+1)The total number of missing values in the data set (i.e. the total number of rows with NAs) is :  `r NaRows`  , which is the same value as presented in the Summary Table on the Top.
+
+
+2-3) We know process to eliminate the missing values from the original data set, by replacing them by its average across Interval and Days f the week. The summary of the new data set  (without Na's) is as follow:  
+
+```{r}
+
+NAAverage<-as.data.frame(summarise            #Values to replace NA's
+           (group_by(data,Interval,Day ),      #Subset by Intervals and Day of the Week
+            mean(Steps, na.rm = TRUE)))  #Calcualte average number of steps without NA
+
+dataNoNA<-subset(data, is.na(Steps) == FALSE)  #Subset data without NA values
+dataNA<-subset(data, is.na(Steps) != FALSE)    #Subset data with NA values
+
+for(i in 1:(length(dataNA[,1]))){
+  dataNA[i,1]<- subset(NAAverage,     #Replace NA values by average steps acrros
+                       Interval== dataNA[i,3] &  #Interval
+                         Day== dataNA[i,4])[,3]   # And days of the week
+  
+}
+
+dataImputed<-rbind(dataNoNA,dataNA)    #Merge anc generate new data set without NA's
+summary(dataImputed)
+```
+
+4) From this summary table we can see that the Mean and the 3rd Qu. of the number of steps taken had changed in comparison to the values obtained from the original data set.
+
+Furthermore, if we look at the  total number of steps taken by day, the distribution of the data have not change significantly.  
+```{r}
+StepsT2<-as.matrix(summarise
+                  (group_by(dataImputed,Date),    #Subset the data by Date
+                  sum(Steps)))             #Calcualte Total number of steps
+Total_Steps2<-na.omit(as.numeric(StepsT[,2])) #Eliminate NA values
+
+par(mfrow=c(1,2))
+hist(Total_Steps2,col= "green",               #plot Histogram with Imputed Data
+     xlab= "Total Number of Steps per Day", 
+     main= "Imputed Data")
+rug(Total_Steps2)
+abline(v= (mean(Total_Steps2)), lwd=4, col="blue")
+
+hist(Total_Steps,col= "green",               #plot Histogram with Orignal Data
+     xlab= "Total Number of Steps per Day", 
+     main= "Original Data")
+rug(Total_Steps)
+abline(v= (mean(Total_Steps)), lwd=4, col="blue")
+
+```
+
+Additionally, we report the Mean and Media of the number of steps taken by day for the new data set, and compare it tot he original data set. 
+
+```{r}
+StepsMeanMedian2<-na.omit(as.data.frame(summarise                 
+                          (group_by(dataImputed,Date), #Subset the data by Date
+                                      mean(Steps),          #Calcualte mean
+                                      median(Steps))))     #Calculate Median
+colnames(StepsMeanMedian2)<-c("Days", "Mean", "Median")      #Name the colums
+StepsMeanMedian2 
+summary(StepsMeanMedian2)
+```
+
+As it can be seem the new data set does affect the values of the Mean and Median for the days in which NA were present on the original data set.
+
+##Are there differences in activity patterns between weekdays and weekends?
+
+To answer this question we plot the average number of steps per interval during the weekdays and weekend 
+
+```{r}
+StepsAverage2<-as.data.frame(summarise
+                            (group_by(data,Interval, data[, 5]),      #Subset by Intervals
+                            mean(Steps, na.rm = TRUE))) #Calcualte the Mean without NA
+colnames(StepsAverage2)<-c("Interval", "Weekday_Weekend", "Average") 
+xyplot(Average~Interval| Weekday_Weekend, StepsAverage2, type="l", lwd=4,    #Make PLot
+       ylab= "Average number of steps",
+       main= " Time Sereies plot of the average number of steps per 5min interval")
+```
+
+It looks like the person is more active during the weekend than during the weekdays.
